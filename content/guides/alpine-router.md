@@ -66,7 +66,7 @@ lan_subnet            | LAN Subnet (br0 subnet)      | 192.168.2.0/24
 gateway_hostname      | Gateway Hostname
 lan_gateway_ipv6      | LAN Gateway IPv6 (ULA, br0)  | fd42:6c61:6e00:1::1
 xfrm_id               | XFRM Interface ID (nord0)    | 42
-pmtu_value            | Path MTU value               | 1318
+pmtu_value            | Path MTU value               | 1280
 lan_ipv6_prefix       | LAN IPv6 Prefix              | fd42:6c61:6e00:1::
 nord_service_username | Nordvpn Service Username
 nord_service_password | Nordvpn Service Password
@@ -130,7 +130,7 @@ iface nord0
     requires eth0
     # Create the xfrm link before bringing the interface up
     pre-up  ip link add nord0 type xfrm dev eth0 if_id [[xfrm_id]]
-    # Set nord0 mtu to (PMTU - 40). PMTU was received from PMTUD in ping
+    # Path MTU value for the nord0 interface
     post-up ip link set dev nord0 mtu [[pmtu_value]]
     post-up ip link set nord0 up
     # Disable ipv6 on nord0
@@ -155,18 +155,14 @@ sysctl kernel parameters are applied in `post-up` because of the following boot 
 
 Since br0 and nord0 do not exist when sysctl runs, it's overrwritten using post-up.
 
-### How to get pmtu_value
+### pmtu_value (Path MTU)
 
-The IPsec vpn connection adds extra overhead to network packets because of the Encapsulating Security Payload (ESP). This can cause packets to be bigger than the MTU value in a network path and because of this, the larger packets would be dropped. This is called an MTU black hole. To fix this, you need to set the MTU value on `nord0` to reasonably low value such as around 1300. Or to get a more specific MTU value, you can continue this guide and come back here once you have mostly everything setup.
+The IPsec vpn connection adds extra overhead to network packets because of the Encapsulating Security Payload (ESP). This can cause packets to be bigger than the MTU value in a network path and because of this, the larger packets would be dropped. This is called an MTU black hole. To fix this, you need to set the MTU value on `nord0` to reasonably low value such as `1280` which is the `IPv6 minimum`. If you know your Path MTU value, you can use the following formula to calculate the MTU value you need to account for the encapsulation.
 
-First, comment out the line with `[[pmtu_value]]` in the `/etc/network/interfaces` file. Then to get a specific MTU value for nord0, connect a computer/client to the router and run the following ping command.
-```console
-$ ping -c 1 -M do -s 1472 1.1.1.1
-PING 1.1.1.1 (1.1.1.1) 1472(1500) bytes of data.
-From 192.168.2.1 icmp_seq=1 Frag needed and DF set (mtu = 1358)
 ```
-
-You should see something like `mtu = 1358` in the output. Grab that value and subract 40 from it `1358 - 40 = 1318`. 40 is subracted here because of the IP header (20 bytes) + TCP header (20 bytes) that is added after the original packet is encapsulated and stored as the outer packet payload. This value is also known as the `MSS` value of outer packet. Uncomment and replace `[[pmtu_value]]` in the `/etc/network/interfaces` file with the new value you calculated.
+inner MTU = <Path MTU> - 20 (outer IP) - 8 (ESP header) - 16 (AES IV) - 16 (HMAC-SHA256) - 2 (ESP trailer) - 15 (max AES padding) = <New Path MTU>
+```
+With NAT-T (UDP port 4500 encapsulation): subtract another 8 bytes.
 
 ### Disable IPv6 on Bridge Slave Interfaces
 
